@@ -8,11 +8,12 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       # Frappe connection
       FRAPPE_URL: ${FRAPPE_URL}
-      FRAPPE_API_KEY: ${FRAPPE_API_KEY}
-      FRAPPE_API_SECRET: ${FRAPPE_API_SECRET}
       # Transport
       MCP_TRANSPORT: sse
       MCP_PORT: 3000
