@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  frappe-mcp:
+    build: .
+    image: frappe-mcp-server:latest
+    container_name: frappe-mcp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Frappe connection
+      FRAPPE_URL: ${FRAPPE_URL}
+      FRAPPE_API_KEY: ${FRAPPE_API_KEY}
+      FRAPPE_API_SECRET: ${FRAPPE_API_SECRET}
+      # Transport
+      MCP_TRANSPORT: sse
+      MCP_PORT: 3000
+      LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
