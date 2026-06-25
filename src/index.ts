@@ -19,52 +19,56 @@ import http from "http";
 
 // ─── MCP Server setup ─────────────────────────────────────────────────────────
 
-const server = new Server(
-  { name: "frappe-mcp-server", version: "1.0.0" },
-  { capabilities: { tools: {}, resources: {}, prompts: {} } }
-);
+function createMcpServer(): Server {
+  const server = new Server(
+    { name: "frappe-mcp-server", version: "1.0.0" },
+    { capabilities: { tools: {}, resources: {}, prompts: {} } }
+  );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  logger.debug("Listing tools requested");
-  return { tools: TOOLS };
-});
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    logger.debug("Listing tools requested");
+    return { tools: TOOLS };
+  });
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  logger.info(`Calling tool: ${name}`);
-  try {
-    return await handleToolCall(name, args);
-  } catch (error: any) {
-    logger.error(`Error executing tool ${name}`, error);
-    return {
-      isError: true,
-      content: [{ type: "text", text: error.message || "An unexpected error occurred" }],
-    };
-  }
-});
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    logger.info(`Calling tool: ${name}`);
+    try {
+      return await handleToolCall(name, args);
+    } catch (error: any) {
+      logger.error(`Error executing tool ${name}`, error);
+      return {
+        isError: true,
+        content: [{ type: "text", text: error.message || "An unexpected error occurred" }],
+      };
+    }
+  });
 
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  logger.debug("Listing resources requested");
-  return { resourceTemplates: RESOURCE_TEMPLATES };
-});
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    logger.debug("Listing resources requested");
+    return { resourceTemplates: RESOURCE_TEMPLATES };
+  });
 
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const { uri } = request.params;
-  logger.info(`Reading resource: ${uri}`);
-  const result = await readResource(uri);
-  return result;
-});
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    logger.info(`Reading resource: ${uri}`);
+    const result = await readResource(uri);
+    return result;
+  });
 
-server.setRequestHandler(ListPromptsRequestSchema, async () => {
-  logger.debug("Listing prompts requested");
-  return { prompts: PROMPTS };
-});
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    logger.debug("Listing prompts requested");
+    return { prompts: PROMPTS };
+  });
 
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  logger.info(`Getting prompt: ${name}`);
-  return await getPrompt(name, args || {});
-});
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    logger.info(`Getting prompt: ${name}`);
+    return await getPrompt(name, args || {});
+  });
+
+  return server;
+}
 
 // ─── Credential extraction helper ────────────────────────────────────────────
 
@@ -116,8 +120,8 @@ async function run() {
     // We create a per-session FrappeApp and store it in AsyncLocalStorage so
     // that all tool calls on that connection automatically use the right client.
     //
-    // Map: sessionId → { transport, frappeApp }
-    const activeSessions = new Map<string, { transport: SSEServerTransport; app: FrappeApp }>();
+    // Map: sessionId → { transport, frappeApp, server }
+    const activeSessions = new Map<string, { transport: SSEServerTransport; app: FrappeApp; server: Server }>();
 
     const httpServer = http.createServer(async (req, res) => {
       const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
@@ -188,7 +192,8 @@ async function run() {
         const sseTransport = new SSEServerTransport("/message", res);
         const sessionId = sseTransport.sessionId;
 
-        activeSessions.set(sessionId, { transport: sseTransport, app: frappeApp });
+        const connectionServer = createMcpServer();
+        activeSessions.set(sessionId, { transport: sseTransport, app: frappeApp, server: connectionServer });
         logger.info(`[${sessionId}] SSE session opened from ${req.socket.remoteAddress} (${creds ? "user credentials" : "global credentials"})`);
 
         req.on("close", () => {
@@ -198,7 +203,7 @@ async function run() {
 
         // Connect this transport to the MCP server INSIDE the session context.
         // AsyncLocalStorage propagates frappeApp to every tool call on this connection.
-        await sessionStorage.run(frappeApp, () => server.connect(sseTransport));
+        await sessionStorage.run(frappeApp, () => connectionServer.connect(sseTransport));
         return;
       }
 
@@ -258,6 +263,7 @@ async function run() {
       process.exit(1);
     }
 
+    const server = createMcpServer();
     const transport = new StdioServerTransport();
     await server.connect(transport);
     logger.info("Frappe MCP Server running on stdio transport");
